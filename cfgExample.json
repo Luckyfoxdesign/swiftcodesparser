@@ -1,0 +1,15 @@
+{
+    "siteURL":"https://www.siteurl.com/",
+    "proxies": [
+        {
+            "proxyUser":"username",
+            "proxyPassword":"userpwd",
+            "proxyHost":"hostip",
+            "proxyPort":"hostport"
+        }
+    ],
+    "dbUser":"dbuser",
+    "dbPassword":"dbpwd",
+    "dbHost":"dbhost",
+    "dbName":"dbname"
+}
