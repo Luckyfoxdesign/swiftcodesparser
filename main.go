@@ -49,8 +49,15 @@ type SwiftInfoDetails struct {
 }
 
 func main() {
-	cfg := readConfig()
-	getAllCountries(&cfg)
+
+	// runFactory()
+}
+
+func runFactory(db *sql.DB) {
+	var (
+		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, 211)
+	)
+
 	/*
 		// Open database connection
 		var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", config.DbUser, config.DbPassword, config.DbHost, config.DbName)
@@ -72,11 +79,8 @@ func main() {
 		db.SetConnMaxIdleTime(time.Second * 2)
 	*/
 
-	// runFactory()
-}
-
-func runFactory(db *sql.DB) {
-
+	cfg := readConfig()
+	getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
 }
 
 // Function that reads the config.json with ioutil.ReadFile()
@@ -96,33 +100,47 @@ func readConfig() Config {
 	return config
 }
 
-// Description how this function works
-func getAllCountries(cfg *Config, db *sql.DB) {
+// Function that requests site url with proxy and execute
+// functions that parses src, inserts in to a database
+// and sends struct to the channel.
+func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
 	// Slug for the page with all countries.
 	// Site URL has a slash at the end of the URL.
 	// browse-by-country/
 
 	proxyURL := returnRandomProxyString(cfg)
-	src, _ := greq.GetHTMLSource(cfg.SiteURL, proxyURL)
+	src, _ := greq.GetHTMLSource(cfg.SiteURL+"browse-by-country/", proxyURL)
 
-	parseHtmlAndInsertCountriesNamesToDB(&src, db)
+	parseHtmlInsertCountriesNamesToDBSendStructToChan(&src, db, swiftInfoChanWithIdandName)
 }
 
 // Function that parses html presented in slice of bytes
 // and execute the function that inserts founded country name
 // in to the database.
 // Arguments are the html in slice of bytes and sql db pointer.
-func parseHtmlAndInsertCountriesNamesToDB(src *[]byte, db *sql.DB) {
+func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
 	for i, v := range *src {
 		if i == 1 {
 			swiftInfoStruct := SwiftInfo{}
-			insertCountryNameToDB(db, swiftInfoStruct)
+			err := insertCountryNameToDB(db, &swiftInfoStruct)
+			if err != nil {
+				log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
+			}
+
+			sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
 		}
 	}
 }
 
-func insertCountryNameToDB(db *sql.DB, swiftInfoStruct SwiftInfo) error {
+func insertCountryNameToDB(db *sql.DB, swiftInfoStruct *SwiftInfo) error {
 	return nil
+}
+
+// Function that sends struct with type SwiftInfo to a specific channel
+// that specified in second argument.
+// First agrument is a pointer to a SwiftInfo struct.
+func sendStructToChannel(swiftInfoStruct *SwiftInfo, ch chan SwiftInfo) {
+	ch <- *swiftInfoStruct
 }
 
 // Function returns random proxy string from the parameters
