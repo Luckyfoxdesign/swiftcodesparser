@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"strings"
 	"time"
 
 	greq "github.com/Luckyfoxdesign/greq"
@@ -14,23 +15,23 @@ import (
 )
 
 type Config struct {
-	Proxies []Proxy
+	Proxies []Proxy `json:"proxies"`
 	SiteURL string
-	DB      Database
+	DB      Database `json:"database"`
 }
 
 type Database struct {
-	User,
-	Password,
-	Host,
-	Name string
+	User     string `json:"dbUser"`
+	Password string `json:"dbPassword"`
+	Host     string `json:"dbHost"`
+	Name     string `json:"dbName"`
 }
 
 type Proxy struct {
-	User,
-	Password,
-	Host,
-	Port string
+	User     string `json:"proxyUser"`
+	Password string `json:"proxyPassword"`
+	Host     string `json:"proxyHost"`
+	Port     string `json:"proxyPort"`
 }
 
 type SwiftInfo struct {
@@ -50,36 +51,36 @@ type SwiftInfoDetails struct {
 
 func main() {
 
-	// runFactory()
+	runFactory()
 }
 
-func runFactory(db *sql.DB) {
+func runFactory() {
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, 211)
 	)
 
-	/*
-		// Open database connection
-		var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", config.DbUser, config.DbPassword, config.DbHost, config.DbName)
-
-		db, err := sql.Open("mysql", connectionString)
-		if err != nil {
-			log.Fatal("Error when sql.Open() in main(): ", err)
-		}
-		defer db.Close()
-
-		err = db.Ping()
-		if err != nil {
-			log.Fatal("Error when db.Ping() in main(): ", err)
-		}
-
-		db.SetConnMaxLifetime(time.Second * 2)
-		db.SetMaxOpenConns(100)
-		db.SetMaxIdleConns(100)
-		db.SetConnMaxIdleTime(time.Second * 2)
-	*/
-
 	cfg := readConfig()
+
+	//Open database connection
+	var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", cfg.DB.User, cfg.DB.Password, cfg.DB.Host, cfg.DB.Name)
+	fmt.Println(connectionString)
+
+	db, err := sql.Open("mysql", connectionString)
+	if err != nil {
+		log.Fatal("Error when sql.Open() in main(): ", err)
+	}
+	defer db.Close()
+
+	err = db.Ping()
+	if err != nil {
+		log.Fatal("Error when db.Ping() in main(): ", err)
+	}
+
+	db.SetConnMaxLifetime(time.Second * 2)
+	db.SetMaxOpenConns(100)
+	db.SetMaxIdleConns(100)
+	db.SetConnMaxIdleTime(time.Second * 2)
+
 	getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
 }
 
@@ -119,15 +120,39 @@ func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan Sw
 // in to the database.
 // Arguments are the html in slice of bytes and sql db pointer.
 func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
+	var w1, w2, w3, w4 byte = 'i', 'o', 'n', 'v'
+	var (
+		w5               byte = '"'
+		counter          uint8
+		quoteStartIndex  int
+		countryName      string
+		countriesCounter uint8
+	)
 	for i, v := range *src {
-		if i == 1 {
-			swiftInfoStruct := SwiftInfo{}
-			err := insertCountryNameToDB(db, &swiftInfoStruct)
-			if err != nil {
-				log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
-			}
+		if v == w1 && (*src)[i+1] == w2 && (*src)[i+2] == w3 && (*src)[i+4] == w4 {
+			for k := i; ; k++ {
+				if (*src)[k] == w5 {
+					if counter > 0 {
+						swiftInfoStruct := SwiftInfo{}
+						countryName = strings.ToLower(string((*src)[quoteStartIndex+1 : k]))
+						swiftInfoStruct.CountryName = countryName
+						counter = 0
+						countriesCounter++
+						// err := insertCountryNameToDB(db, &swiftInfoStruct)
+						// if err != nil {
+						// 	log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
+						// }
 
-			sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
+						// sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
+						break
+					}
+					counter++
+					quoteStartIndex = k
+				}
+			}
+		}
+		if countriesCounter == 211 {
+			break
 		}
 	}
 }
