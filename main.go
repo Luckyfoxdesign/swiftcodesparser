@@ -122,21 +122,20 @@ func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan Sw
 func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
 	var w1, w2, w3, w4 byte = 'i', 'o', 'n', 'v'
 	var (
-		w5               byte = '"'
-		counter          uint8
-		quoteStartIndex  int
-		countryName      string
-		countriesCounter uint8
+		w5                             byte = '"'
+		quoteCounter, countriesCounter uint8
+		quoteStartIndex                int
+		countryName                    string
 	)
 	for i, v := range *src {
 		if v == w1 && (*src)[i+1] == w2 && (*src)[i+2] == w3 && (*src)[i+4] == w4 {
 			for k := i; ; k++ {
 				if (*src)[k] == w5 {
-					if counter > 0 {
+					if quoteCounter > 0 {
 						swiftInfoStruct := SwiftInfo{}
 						countryName = strings.ToLower(string((*src)[quoteStartIndex+1 : k]))
 						swiftInfoStruct.CountryName = countryName
-						counter = 0
+						quoteCounter = 0
 						countriesCounter++
 						// err := insertCountryNameToDB(db, &swiftInfoStruct)
 						// if err != nil {
@@ -146,7 +145,7 @@ func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, 
 						// sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
 						break
 					}
-					counter++
+					quoteCounter++
 					quoteStartIndex = k
 				}
 			}
