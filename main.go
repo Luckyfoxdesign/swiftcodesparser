@@ -1,12 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"math/rand"
+	"strconv"
 	"strings"
 	"time"
 
@@ -38,6 +40,7 @@ type SwiftInfo struct {
 	CountryName  string
 	CountryId    int64
 	DetailsSlice []SwiftInfoDetails
+	Pages        int
 }
 
 type SwiftInfoDetails struct {
@@ -87,6 +90,7 @@ func runFactory() {
 	// we can use non blocking buffered channel with predefined capacity
 	for i := 0; i < 211; i++ {
 		fmt.Println(<-swiftInfoChanWithIdandName)
+		getAllSwiftCodesByCountry()
 	}
 }
 
@@ -116,7 +120,11 @@ func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan Sw
 	// browse-by-country/
 
 	proxyURL := returnRandomProxyString(cfg)
-	src, _ := greq.GetHTMLSource(cfg.SiteURL+"browse-by-country/", proxyURL)
+
+	src, err := greq.GetHTMLSource(cfg.SiteURL+"browse-by-country/", proxyURL)
+	if err != nil {
+		log.Fatal("Error when greq.GetHTMLSource() in getAllCountries(): ", err)
+	}
 
 	parseHtmlInsertCountriesNamesToDBSendStructToChan(&src, db, swiftInfoChanWithIdandName)
 }
@@ -191,4 +199,41 @@ func returnRandomProxyString(c *Config) string {
 // Argument is a pointer to the Proxy struct variable.
 func returnProxyStringURL(p *Proxy) string {
 	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
+}
+
+func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config) {
+	proxyURL := returnRandomProxyString(cfg)
+	countryName := strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
+
+	src, err := greq.GetHTMLSource(cfg.SiteURL+countryName, proxyURL)
+	if err != nil {
+		log.Fatal("Error when greq.GetHTMLSource in getAllSwiftCodesByCountry(): ", err)
+	}
+
+	//parseHtmlWithSwiftCodes()
+}
+
+func findPagesCount(src *[]byte) int {
+	// ищем слово last и проверяем что перед ним есть символы /">
+	// <a href="/china/page/54/">Last »</a>
+	// не забывать что может быть 3 элемента, 2 связанных с кнопкой Last
+	// и один элемент из описания кода <li>Last 3
+
+	firstIndex := bytes.Index(*src, []byte(">Last"))
+	var lastQuoteIndex, numberOfPagesInt int = firstIndex - 2, 0
+
+	if (*src)[firstIndex-2] == '/' {
+		for i := 3; i != 6; i++ {
+			if (*src)[firstIndex-i] == '/' {
+				numberOfPagesString := string((*src)[firstIndex-i : lastQuoteIndex])
+				numberOfPagesInt, _ = strconv.Atoi(numberOfPagesString)
+				break
+			}
+		}
+	}
+	return numberOfPagesInt
+}
+
+func parseHtmlWithSwiftCodesAndInser(src *[]byte) {
+
 }
