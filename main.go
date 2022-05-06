@@ -35,8 +35,8 @@ type Proxy struct {
 }
 
 type SwiftInfo struct {
-	CountryName,
-	CountryId string
+	CountryName  string
+	CountryId    int64
 	DetailsSlice []SwiftInfoDetails
 }
 
@@ -81,7 +81,13 @@ func runFactory() {
 	db.SetMaxIdleConns(100)
 	db.SetConnMaxIdleTime(time.Second * 2)
 
-	getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
+	go getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
+
+	// Because site does have only 211 countries in total,
+	// we can use non blocking buffered channel with predefined capacity
+	for i := 0; i < 211; i++ {
+		fmt.Println(<-swiftInfoChanWithIdandName)
+	}
 }
 
 // Function that reads the config.json with ioutil.ReadFile()
@@ -102,8 +108,8 @@ func readConfig() Config {
 }
 
 // Function that requests site url with proxy and execute
-// functions that parses src, inserts in to a database
-// and sends struct to the channel.
+// functions that parses src, inserts a SwiftInfo struct in to a database
+// and sends it in to the channel.
 func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
 	// Slug for the page with all countries.
 	// Site URL has a slash at the end of the URL.
@@ -120,12 +126,11 @@ func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan Sw
 // in to the database.
 // Arguments are the html in slice of bytes and sql db pointer.
 func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
-	var w1, w2, w3, w4 byte = 'i', 'o', 'n', 'v'
 	var (
-		w5                             byte = '"'
-		quoteCounter, countriesCounter uint8
-		quoteStartIndex                int
-		countryName                    string
+		w1, w2, w3, w4, w5 byte = 'i', 'o', 'n', 'v', '"'
+		quoteCounter       uint8
+		quoteStartIndex    int
+		countryName        string
 	)
 	for i, v := range *src {
 		if v == w1 && (*src)[i+1] == w2 && (*src)[i+2] == w3 && (*src)[i+4] == w4 {
@@ -136,26 +141,25 @@ func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, 
 						countryName = strings.ToLower(string((*src)[quoteStartIndex+1 : k]))
 						swiftInfoStruct.CountryName = countryName
 						quoteCounter = 0
-						countriesCounter++
+						swiftInfoStruct.CountryId = 1
 						// err := insertCountryNameToDB(db, &swiftInfoStruct)
 						// if err != nil {
 						// 	log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
 						// }
 
-						// sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
+						sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
 						break
 					}
 					quoteCounter++
 					quoteStartIndex = k
 				}
 			}
-		}
-		if countriesCounter == 211 {
 			break
 		}
 	}
 }
 
+// Function that inserts all data from SwiftInfo struct in to a specified database
 func insertCountryNameToDB(db *sql.DB, swiftInfoStruct *SwiftInfo) error {
 	return nil
 }
