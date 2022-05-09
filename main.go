@@ -228,7 +228,7 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfo
 	getFirstSwiftCodeInfoFromPage(&src, &swiftInfoStruct, swiftInfoFirstDataChan)
 	pagesNumber = findPagesCount(&src)
 	if pagesNumber > 0 {
-		// запускаем метод getSwiftFirstSwiftCodeInfoFromPage
+		// Run the getSwiftFirstSwiftCodeInfoFromPage function
 	}
 }
 
@@ -239,27 +239,33 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfo
 func getFirstSwiftCodeInfoFromPage(src *[]byte, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo) {
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
-		endTableIndex     int = bytes.Index(*src, []byte("</tb"))
+		lastTableIndex    int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
+		elementData       string
 		elementStartIndex int
 		elementCounter    uint8
 		elementsInfo      map[uint8]string = make(map[uint8]string, 5)
 		details           SwiftInfoDetails
 	)
 
-	for i := firstTableIndex; i < endTableIndex; i++ {
+	for i := firstTableIndex; i < lastTableIndex; i++ {
+		// I don't know how to rewrite this complex condition and do it more easier.
 		if (*src)[i] == '"' && (*src)[i+1] == '>' && (*src)[i-1] != '/' && (*src)[i-6] != 'p' && (*src)[i+5] != 'n' && (*src)[i+6] != 's' {
 			elementStartIndex = i + 2
 			for k := i; ; k++ {
 				if (*src)[k] == '<' && (*src)[k+1] == '/' {
-					str := string((*src)[elementStartIndex:k])
+					elementData = string((*src)[elementStartIndex:k])
+
 					// <ins class= it's a google ad element that inserts by js
-					if !strings.Contains(str, "<ins class") {
-						elementsInfo[elementCounter] = str
+					// we don't need this element
+					if !strings.Contains(elementData, "<ins class") {
+						elementsInfo[elementCounter] = elementData
 					}
 					break
 				}
 			}
-			//fmt.Println("ec", elementCounter, elementsInfo[elementCounter])
+			// Row with code under the comment helps with the understanding that the code/algorytm is working correctly.
+			// Shows a correct/incorrect elementsData order
+			// fmt.Println("ec", elementCounter, elementsInfo[elementCounter])
 
 			elementCounter++
 			if elementCounter == 5 {
@@ -276,27 +282,25 @@ func getFirstSwiftCodeInfoFromPage(src *[]byte, swiftCodeStruct *SwiftInfo, swif
 	sendStructToChannel(swiftCodeStruct, swiftCodeChan)
 }
 
+// Function that searchs for the >Last word and checking if the symbol / is before the searching word.
+// Example: <a href="/china/page/54/">Last »</a>
+// Don't forget that might be three elements, two of them related to the Last button
+// and one element placed in the swift code description block.
+// Example: <li>Last 3
 func findPagesCount(src *[]byte) int {
-	// ищем слово last и проверяем что перед ним есть символы /">
-	// <a href="/china/page/54/">Last »</a>
-	// не забывать что может быть 3 элемента, 2 связанных с кнопкой Last
-	// и один элемент из описания кода <li>Last 3
+	var (
+		firstIndexForWord                int = bytes.Index(*src, []byte(">Last"))
+		lastQuoteIndex, numberOfPagesInt int = firstIndexForWord - 2, 0
+	)
 
-	firstIndex := bytes.Index(*src, []byte(">Last"))
-	var lastQuoteIndex, numberOfPagesInt int = firstIndex - 2, 0
-
-	if (*src)[firstIndex-2] == '/' {
+	if (*src)[firstIndexForWord-2] == '/' {
 		for i := 3; i != 6; i++ {
-			if (*src)[firstIndex-i] == '/' {
-				numberOfPagesString := string((*src)[firstIndex-i : lastQuoteIndex])
+			if (*src)[firstIndexForWord-i] == '/' {
+				numberOfPagesString := string((*src)[firstIndexForWord-i : lastQuoteIndex])
 				numberOfPagesInt, _ = strconv.Atoi(numberOfPagesString)
 				break
 			}
 		}
 	}
 	return numberOfPagesInt
-}
-
-func parseHtmlWithSwiftCodesAndInser(src *[]byte) {
-
 }
