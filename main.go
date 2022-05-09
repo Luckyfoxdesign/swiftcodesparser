@@ -214,29 +214,43 @@ func returnProxyStringURL(p *Proxy) string {
 
 func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfoFirstDataChan chan SwiftInfo) {
 	var (
-		proxyURL    string = returnRandomProxyString(cfg)
-		countryName string = strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
-		pagesNumber int
+		proxyURL       string = returnRandomProxyString(cfg)
+		countryName    string = strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
+		pagesNumber    int
+		emptyByteSlice []byte
 	)
 
 	fmt.Println(cfg.SiteURL + countryName)
-	src, err := greq.GetHTMLSource(cfg.SiteURL+countryName, proxyURL)
+
+	src, _ := getSiteHtmlCode(cfg.SiteURL+countryName, proxyURL)
+	getSwiftCodeInfoFromPage(cfg.SiteURL+countryName, proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &src)
+
+	pagesNumber = findPagesCount(&src)
+
+	if pagesNumber > 0 {
+		swiftInfoStruct.Pages = pagesNumber
+		for i := 2; i <= pagesNumber; i++ {
+			getSwiftCodeInfoFromPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
+		}
+	}
+}
+
+func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
+	src, err := greq.GetHTMLSource(siteURL, proxyURL)
 	if err != nil {
 		log.Fatal("Error when greq.GetHTMLSource in getAllSwiftCodesByCountry(): ", err)
 	}
-
-	getFirstSwiftCodeInfoFromPage(&src, &swiftInfoStruct, swiftInfoFirstDataChan)
-	pagesNumber = findPagesCount(&src)
-	if pagesNumber > 0 {
-		// Run the getSwiftFirstSwiftCodeInfoFromPage function
-	}
+	return src, nil
 }
 
 // Function that parses html code and search for the
 // Bank or Institution, City, Branch, Swift code.
 // When information will found function writes it to a SwiftInfo struct
 // and sends in to a specific channel.
-func getFirstSwiftCodeInfoFromPage(src *[]byte, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo) {
+func getSwiftCodeInfoFromPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
+	if len(*src) == 0 {
+		*src, _ = getSiteHtmlCode(siteURL, proxyURL)
+	}
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
 		lastTableIndex    int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
@@ -248,7 +262,7 @@ func getFirstSwiftCodeInfoFromPage(src *[]byte, swiftCodeStruct *SwiftInfo, swif
 	)
 
 	for i := firstTableIndex; i < lastTableIndex; i++ {
-		// I don't know how to rewrite this complex condition and do it more easier.
+		// I don't know how to rewrite this complex condition and make it more easier.
 		if (*src)[i] == '"' && (*src)[i+1] == '>' && (*src)[i-1] != '/' && (*src)[i-6] != 'p' && (*src)[i+5] != 'n' && (*src)[i+6] != 's' {
 			elementStartIndex = i + 2
 			for k := i; ; k++ {
