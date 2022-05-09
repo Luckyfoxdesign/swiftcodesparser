@@ -60,6 +60,7 @@ func main() {
 func runFactory() {
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, 211)
+		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, 211)
 	)
 
 	cfg := readConfig()
@@ -89,8 +90,18 @@ func runFactory() {
 	// Because site does have only 211 countries in total,
 	// we can use non blocking buffered channel with predefined capacity
 	for i := 0; i < 211; i++ {
-		fmt.Println(<-swiftInfoChanWithIdandName)
-		getAllSwiftCodesByCountry()
+		time.Sleep(time.Second)
+		getAllSwiftCodesByCountry(<-swiftInfoChanWithIdandName, &cfg, swiftInfoChanWithFirstData)
+		break
+	}
+	for i := 0; i < 211; i++ {
+		fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
+
+		// IMPORTANT
+		// on this step structure hasn't the valid swift code
+		// field contains the html link element inside whom
+		// placed swift code.
+		break
 	}
 }
 
@@ -201,16 +212,68 @@ func returnProxyStringURL(p *Proxy) string {
 	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
 }
 
-func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config) {
-	proxyURL := returnRandomProxyString(cfg)
-	countryName := strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
+func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfoFirstDataChan chan SwiftInfo) {
+	var (
+		proxyURL    string = returnRandomProxyString(cfg)
+		countryName string = strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
+		pagesNumber int
+	)
 
+	fmt.Println(cfg.SiteURL + countryName)
 	src, err := greq.GetHTMLSource(cfg.SiteURL+countryName, proxyURL)
 	if err != nil {
 		log.Fatal("Error when greq.GetHTMLSource in getAllSwiftCodesByCountry(): ", err)
 	}
 
-	//parseHtmlWithSwiftCodes()
+	getFirstSwiftCodeInfoFromPage(&src, &swiftInfoStruct, swiftInfoFirstDataChan)
+	pagesNumber = findPagesCount(&src)
+	if pagesNumber > 0 {
+		// запускаем метод getSwiftFirstSwiftCodeInfoFromPage
+	}
+}
+
+// Function that parses html code and search for the
+// Bank or Institution, City, Branch, Swift code.
+// When information will found function writes it to a SwiftInfo struct
+// and sends in to a specific channel.
+func getFirstSwiftCodeInfoFromPage(src *[]byte, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo) {
+	var (
+		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
+		endTableIndex     int = bytes.Index(*src, []byte("</tb"))
+		elementStartIndex int
+		elementCounter    uint8
+		elementsInfo      map[uint8]string = make(map[uint8]string, 5)
+		details           SwiftInfoDetails
+	)
+
+	for i := firstTableIndex; i < endTableIndex; i++ {
+		if (*src)[i] == '"' && (*src)[i+1] == '>' && (*src)[i-1] != '/' && (*src)[i-6] != 'p' && (*src)[i+5] != 'n' && (*src)[i+6] != 's' {
+			elementStartIndex = i + 2
+			for k := i; ; k++ {
+				if (*src)[k] == '<' && (*src)[k+1] == '/' {
+					str := string((*src)[elementStartIndex:k])
+					// <ins class= it's a google ad element that inserts by js
+					if !strings.Contains(str, "<ins class") {
+						elementsInfo[elementCounter] = str
+					}
+					break
+				}
+			}
+			//fmt.Println("ec", elementCounter, elementsInfo[elementCounter])
+
+			elementCounter++
+			if elementCounter == 5 {
+				details.BankOrInstitution = elementsInfo[1]
+				details.City = elementsInfo[2]
+				details.Branch = elementsInfo[3]
+				details.SwiftCodeOrBIC = elementsInfo[4]
+				swiftCodeStruct.DetailsSlice = append(swiftCodeStruct.DetailsSlice, details)
+
+				elementCounter = 0
+			}
+		}
+	}
+	sendStructToChannel(swiftCodeStruct, swiftCodeChan)
 }
 
 func findPagesCount(src *[]byte) int {
