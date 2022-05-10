@@ -40,7 +40,6 @@ type SwiftInfo struct {
 	CountryName  string
 	CountryId    int64
 	DetailsSlice []SwiftInfoDetails
-	Pages        int
 }
 
 type SwiftInfoDetails struct {
@@ -53,7 +52,6 @@ type SwiftInfoDetails struct {
 }
 
 func main() {
-
 	runFactory()
 }
 
@@ -61,6 +59,7 @@ func runFactory() {
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, 211)
 		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, 211)
+		swiftInfoChanWithAllData   chan SwiftInfo = make(chan SwiftInfo, 211)
 	)
 
 	cfg := readConfig()
@@ -96,17 +95,25 @@ func runFactory() {
 	}
 	for i := 0; i < 211; i++ {
 		// fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
-
 		sct := <-swiftInfoChanWithFirstData
-		for i, v := range sct.DetailsSlice {
-			extractSwiftCode(&v)
+		for _, v := range sct.DetailsSlice {
+			if v.SwiftCodeOrBIC != "" {
+				// On this step structure hasn't the valid swift code.
+				// Field contains an html link element inside whom placed swift code.
+				// So we need to extract this code.
+				// Example: <a href="/albania/usalaltrvl2/">USALALTRVL2
+				extractSwiftCode(&v)
+			}
+			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, &v)
 		}
-
-		// IMPORTANT
-		// on this step structure hasn't the valid swift code
-		// field contains the html link element inside whom
-		// placed swift code.
+		sendStructToChannel(&sct, swiftInfoChanWithAllData)
 		break
+	}
+	for i := 0; i < 211; i++ {
+		sct := <-swiftInfoChanWithAllData
+		for i, v := range sct.DetailsSlice {
+			fmt.Println(i, v)
+		}
 	}
 }
 
@@ -186,9 +193,9 @@ func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, 
 // Function that extracts swift code from the <a> link element.
 func extractSwiftCode(SwiftInfoDetailsStruct *SwiftInfoDetails) {
 	var row []byte = []byte(SwiftInfoDetailsStruct.SwiftCodeOrBIC)
-	for i := 10; i > 0; i-- {
+	for i := len(row) - 1; i > 0; i-- {
 		if row[i] == '>' {
-			SwiftInfoDetailsStruct.SwiftCodeOrBIC = string(row[i+1:])
+			SwiftInfoDetailsStruct.SwiftCodeOrBIC = strings.ToLower(string(row[i+1:]))
 			break
 		}
 	}
@@ -228,6 +235,12 @@ func returnProxyStringURL(p *Proxy) string {
 	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
 }
 
+// Function that requests site data and parses response in the html.
+// On the first page we get pages total count and run loop that
+// requests on each page in a loop.
+// Result of this response we add to the existing sturcture that passes
+// like an argument in the function and send structure to another channel.
+// On the first page we get pages total count and iterate each of page.
 func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfoFirstDataChan chan SwiftInfo) {
 	var (
 		proxyURL       string = returnRandomProxyString(cfg)
@@ -236,27 +249,43 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfo
 		emptyByteSlice []byte
 	)
 
+	// !!!DON'T FORGET TO REMOVE STRING BELOW
 	fmt.Println(cfg.SiteURL + countryName)
 
-	src, _ := getSiteHtmlCode(cfg.SiteURL+countryName, proxyURL)
+	src, err := getSiteHtmlCode(cfg.SiteURL+countryName, proxyURL)
+	if err != nil {
+		log.Fatal("Error when getSiteHtmlCode() in the getAllSwiftCodesByCountry() with the err: ", err)
+	}
 	getSwiftCodeInfoFromPage(cfg.SiteURL+countryName, proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &src)
 
 	pagesNumber = findPagesCount(&src)
 
 	if pagesNumber > 0 {
-		swiftInfoStruct.Pages = pagesNumber
 		for i := 2; i <= pagesNumber; i++ {
 			getSwiftCodeInfoFromPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
 		}
 	}
 }
 
+// Function that requests site url via a proxy and returns slice of bytes.
+// If request has an error function returns it or returns nil.
 func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 	src, err := greq.GetHTMLSource(siteURL, proxyURL)
 	if err != nil {
-		log.Fatal("Error when greq.GetHTMLSource in getAllSwiftCodesByCountry(): ", err)
+		return src, err
 	}
 	return src, nil
+}
+
+// Function that requests a swift code page with full information for requested swift code.
+// It searching for a postcode and a connection.
+// When we find them we write them to the existing SwiftInfo struct.
+func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDetailsStruct *SwiftInfoDetails) {
+	src, err := getSiteHtmlCode(cfg.SiteURL, returnRandomProxyString(cfg))
+	if err != nil {
+		log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPageAndWriteToExistingStructAndSendToChan() with the err: ", err)
+	}
+	// Code that will parses response in th html from a swift code page
 }
 
 // Function that parses html code and search for the
@@ -265,7 +294,10 @@ func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 // and sends in to a specific channel.
 func getSwiftCodeInfoFromPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
 	if len(*src) == 0 {
-		*src, _ = getSiteHtmlCode(siteURL, proxyURL)
+		*src, err = getSiteHtmlCode(siteURL, proxyURL)
+		if err != nil {
+			log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPage() with the err: ", err)
+		}
 	}
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
