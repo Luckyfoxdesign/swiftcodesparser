@@ -95,7 +95,12 @@ func runFactory() {
 		break
 	}
 	for i := 0; i < 211; i++ {
-		fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
+		// fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
+
+		sct := <-swiftInfoChanWithFirstData
+		for i, v := range sct.DetailsSlice {
+			extractSwiftCode(&v)
+		}
 
 		// IMPORTANT
 		// on this step structure hasn't the valid swift code
@@ -173,6 +178,17 @@ func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, 
 					quoteStartIndex = k
 				}
 			}
+			break
+		}
+	}
+}
+
+// Function that extracts swift code from the <a> link element.
+func extractSwiftCode(SwiftInfoDetailsStruct *SwiftInfoDetails) {
+	var row []byte = []byte(SwiftInfoDetailsStruct.SwiftCodeOrBIC)
+	for i := 10; i > 0; i-- {
+		if row[i] == '>' {
+			SwiftInfoDetailsStruct.SwiftCodeOrBIC = string(row[i+1:])
 			break
 		}
 	}
