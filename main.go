@@ -51,6 +51,17 @@ type SwiftInfoDetails struct {
 	Postcode string
 }
 
+// Function that extracts swift code from the <a> link element.
+func (SwiftInfoDetailsStruct *SwiftInfoDetails) extractSwiftCode() {
+	var row []byte = []byte(SwiftInfoDetailsStruct.SwiftCodeOrBIC)
+	for i := len(row) - 1; i > 0; i-- {
+		if row[i] == '>' {
+			SwiftInfoDetailsStruct.SwiftCodeOrBIC = strings.ToLower(string(row[i+1:]))
+			break
+		}
+	}
+}
+
 func main() {
 	runFactory()
 }
@@ -96,24 +107,30 @@ func runFactory() {
 	for i := 0; i < 211; i++ {
 		// fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
 		sct := <-swiftInfoChanWithFirstData
-		for _, v := range sct.DetailsSlice {
+		for i, v := range sct.DetailsSlice {
 			if v.SwiftCodeOrBIC != "" {
 				// On this step structure hasn't the valid swift code.
 				// Field contains an html link element inside whom placed swift code.
 				// So we need to extract this code.
 				// Example: <a href="/albania/usalaltrvl2/">USALALTRVL2
-				extractSwiftCode(&v)
+
+				// I REALLY DON'T KNOW HOW IT WORKS. BUT IT WORK.
+				// DON'T FORGET ABOUT THIS PLACE, LEARN.
+				// I guess it because v is a copy in memory not a pointer
+				sct.DetailsSlice[i].extractSwiftCode()
 			}
-			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, &v)
+			//getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, &v)
 		}
+		fmt.Println(sct)
 		sendStructToChannel(&sct, swiftInfoChanWithAllData)
 		break
 	}
 	for i := 0; i < 211; i++ {
 		sct := <-swiftInfoChanWithAllData
 		for i, v := range sct.DetailsSlice {
-			fmt.Println(i, v)
+			fmt.Println(i, v.SwiftCodeOrBIC)
 		}
+		break
 	}
 }
 
@@ -185,17 +202,6 @@ func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, 
 					quoteStartIndex = k
 				}
 			}
-			break
-		}
-	}
-}
-
-// Function that extracts swift code from the <a> link element.
-func extractSwiftCode(SwiftInfoDetailsStruct *SwiftInfoDetails) {
-	var row []byte = []byte(SwiftInfoDetailsStruct.SwiftCodeOrBIC)
-	for i := len(row) - 1; i > 0; i-- {
-		if row[i] == '>' {
-			SwiftInfoDetailsStruct.SwiftCodeOrBIC = strings.ToLower(string(row[i+1:]))
 			break
 		}
 	}
@@ -281,7 +287,7 @@ func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 // It searching for a postcode and a connection.
 // When we find them we write them to the existing SwiftInfo struct.
 func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDetailsStruct *SwiftInfoDetails) {
-	src, err := getSiteHtmlCode(cfg.SiteURL, returnRandomProxyString(cfg))
+	_, err := getSiteHtmlCode(cfg.SiteURL, returnRandomProxyString(cfg))
 	if err != nil {
 		log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPageAndWriteToExistingStructAndSendToChan() with the err: ", err)
 	}
@@ -293,12 +299,6 @@ func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDeta
 // When information will found function writes it to a SwiftInfo struct
 // and sends in to a specific channel.
 func getSwiftCodeInfoFromPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
-	if len(*src) == 0 {
-		*src, err = getSiteHtmlCode(siteURL, proxyURL)
-		if err != nil {
-			log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPage() with the err: ", err)
-		}
-	}
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
 		lastTableIndex    int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
@@ -306,16 +306,27 @@ func getSwiftCodeInfoFromPage(siteURL, proxyURL string, swiftCodeStruct *SwiftIn
 		elementStartIndex int
 		elementCounter    uint8
 		elementsInfo      map[uint8]string = make(map[uint8]string, 5)
+		source            []byte
+		err               error
 		details           SwiftInfoDetails
 	)
 
+	if len(*src) == 0 {
+		source, err = getSiteHtmlCode(siteURL, proxyURL)
+		if err != nil {
+			log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPage() with the err: ", err)
+		}
+	} else {
+		source = *src
+	}
+
 	for i := firstTableIndex; i < lastTableIndex; i++ {
 		// I don't know how to rewrite this complex condition and make it more easier.
-		if (*src)[i] == '"' && (*src)[i+1] == '>' && (*src)[i-1] != '/' && (*src)[i-6] != 'p' && (*src)[i+5] != 'n' && (*src)[i+6] != 's' {
+		if (source)[i] == '"' && (source)[i+1] == '>' && (source)[i-1] != '/' && (source)[i-6] != 'p' && (source)[i+5] != 'n' && (source)[i+6] != 's' {
 			elementStartIndex = i + 2
 			for k := i; ; k++ {
-				if (*src)[k] == '<' && (*src)[k+1] == '/' {
-					elementData = string((*src)[elementStartIndex:k])
+				if (source)[k] == '<' && (source)[k+1] == '/' {
+					elementData = string((source)[elementStartIndex:k])
 
 					// <ins class= it's a google ad element that inserts by js
 					// we don't need this element
