@@ -48,6 +48,7 @@ type SwiftInfoDetails struct {
 	Branch,
 	SwiftCodeOrBIC,
 	Address,
+	Connection,
 	Postcode string
 }
 
@@ -114,21 +115,25 @@ func runFactory() {
 				// So we need to extract this code.
 				// Example: <a href="/albania/usalaltrvl2/">USALALTRVL2
 
-				// I REALLY DON'T KNOW HOW IT WORKS. BUT IT WORK.
+				// !!!I REALLY DON'T KNOW HOW IT WORKS. BUT IT WORK.
 				// DON'T FORGET ABOUT THIS PLACE, LEARN.
-				// I guess it because v is a copy in memory not a pointer
+				// Previously I've wrote extractSwiftCode as a separate func with
+				// a pointer argument to the v variable.
+				// I guess it work because the v as a copy in memory not a pointer
+				// so when I access child struct by the index directly from the parent
+				// I can correctly change values for the child struct.
 				sct.DetailsSlice[i].extractSwiftCode()
 			}
-			//getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, &v)
+			//!!!TODO
+			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, i, &sct)
 		}
-		fmt.Println(sct)
 		sendStructToChannel(&sct, swiftInfoChanWithAllData)
 		break
 	}
 	for i := 0; i < 211; i++ {
 		sct := <-swiftInfoChanWithAllData
 		for i, v := range sct.DetailsSlice {
-			fmt.Println(i, v.SwiftCodeOrBIC)
+			fmt.Println(i, v)
 		}
 		break
 	}
@@ -262,13 +267,13 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfo
 	if err != nil {
 		log.Fatal("Error when getSiteHtmlCode() in the getAllSwiftCodesByCountry() with the err: ", err)
 	}
-	getSwiftCodeInfoFromPage(cfg.SiteURL+countryName, proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &src)
+	findSwiftCodeInfoInPage(cfg.SiteURL+countryName, proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &src)
 
 	pagesNumber = findPagesCount(&src)
 
 	if pagesNumber > 0 {
 		for i := 2; i <= pagesNumber; i++ {
-			getSwiftCodeInfoFromPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
+			findSwiftCodeInfoInPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
 		}
 	}
 }
@@ -286,19 +291,48 @@ func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 // Function that requests a swift code page with full information for requested swift code.
 // It searching for a postcode and a connection.
 // When we find them we write them to the existing SwiftInfo struct.
-func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDetailsStruct *SwiftInfoDetails) {
-	_, err := getSiteHtmlCode(cfg.SiteURL, returnRandomProxyString(cfg))
+func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDetailsStructIndex int, swiftCodeInfoStruct *SwiftInfo) {
+	url := cfg.SiteURL + swiftCodeInfoStruct.CountryName + "/" + swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].SwiftCodeOrBIC
+	fmt.Println(url)
+	src, err := getSiteHtmlCode(url, returnRandomProxyString(cfg))
 	if err != nil {
 		log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPageAndWriteToExistingStructAndSendToChan() with the err: ", err)
 	}
-	// Code that will parses response in th html from a swift code page
+
+	var (
+		postCodeTitleStartIndex        int = bytes.Index(src, []byte("Addr"))
+		tbodyEndIndex                  int = bytes.Index(src, []byte("</tb"))
+		valueStartIndex, valueEndIndex int
+		valuesSlice                    []string
+	)
+	for i := postCodeTitleStartIndex; i < tbodyEndIndex; i++ {
+		if src[i] == 'd' && src[i+1] == '>' && src[i-2] == '<' {
+			valueStartIndex = i + 2
+			for k := i + 1; ; k++ {
+				if src[k] == '<' {
+					valueEndIndex = k
+					value := string(src[valueStartIndex:valueEndIndex])
+					valuesSlice = append(valuesSlice, value)
+					break
+				}
+			}
+		}
+	}
+
+	*&swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].Address = valuesSlice[0]
+	*&swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].Postcode = valuesSlice[2]
+	if valuesSlice[4] == "Active" {
+		*&swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].Connection = "1"
+	} else {
+		*&swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].Connection = "0"
+	}
 }
 
 // Function that parses html code and search for the
 // Bank or Institution, City, Branch, Swift code.
 // When information will found function writes it to a SwiftInfo struct
 // and sends in to a specific channel.
-func getSwiftCodeInfoFromPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
+func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
 		lastTableIndex    int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
