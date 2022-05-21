@@ -68,10 +68,11 @@ func main() {
 }
 
 func runFactory() {
+	const countriesToParse = 211
 	var (
-		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, 211)
-		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, 211)
-		swiftInfoChanWithAllData   chan SwiftInfo = make(chan SwiftInfo, 211)
+		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
+		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
+		swiftInfoChanWithAllData   chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
 	)
 
 	cfg := readConfig()
@@ -96,18 +97,26 @@ func runFactory() {
 	db.SetMaxIdleConns(100)
 	db.SetConnMaxIdleTime(time.Second * 2)
 
+	// Befour we run the function below, we need to check
 	go getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
 
-	// Because site does have only 211 countries in total,
+	// Because we run our app with a cron
 	// we can use non blocking buffered channel with predefined capacity
-	for i := 0; i < 211; i++ {
+	for i := 0; i < countriesToParse; i++ {
 		time.Sleep(time.Second)
 		getAllSwiftCodesByCountry(<-swiftInfoChanWithIdandName, &cfg, swiftInfoChanWithFirstData)
 		break
 	}
-	for i := 0; i < 211; i++ {
+	for i := 0; i < countriesToParse; i++ {
 		// fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
 		sct := <-swiftInfoChanWithFirstData
+		// If I need to control the scraping process I need to know:
+		// - how many pages were already parsed
+		// - how many pages in total
+
+		// I think I need to parse one page at a time???
+		// so I need a loop with counter instead of the loop with a the range
+		// or we don't need the loop at all.
 		for i, v := range sct.DetailsSlice {
 			if v.SwiftCodeOrBIC != "" {
 				// On this step structure hasn't the valid swift code.
@@ -119,21 +128,22 @@ func runFactory() {
 				// DON'T FORGET ABOUT THIS PLACE, LEARN.
 				// Previously I've wrote extractSwiftCode as a separate func with
 				// a pointer argument to the v variable.
-				// I guess it work because the v as a copy in memory not a pointer
-				// so when I access child struct by the index directly from the parent
+				// I guess it work because the v in the loop as a copy in memory not a pointer
+				// so when I access child struct by the index directly from the parent struct
 				// I can correctly change values for the child struct.
 				sct.DetailsSlice[i].extractSwiftCode()
 			}
-			//!!!TODO
+			time.Sleep(time.Millisecond * 200)
 			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, i, &sct)
 		}
 		sendStructToChannel(&sct, swiftInfoChanWithAllData)
 		break
 	}
-	for i := 0; i < 211; i++ {
+	for i := 0; i < countriesToParse; i++ {
 		sct := <-swiftInfoChanWithAllData
 		for i, v := range sct.DetailsSlice {
 			fmt.Println(i, v)
+			// write swiftInfoDetails to database
 		}
 		break
 	}
@@ -171,14 +181,16 @@ func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan Sw
 		log.Fatal("Error when greq.GetHTMLSource() in getAllCountries(): ", err)
 	}
 
-	parseHtmlInsertCountriesNamesToDBSendStructToChan(&src, db, swiftInfoChanWithIdandName)
+	// TODO We need to write country id to help table
+
+	parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(&src, db, swiftInfoChanWithIdandName)
 }
 
 // Function that parses html presented in slice of bytes
 // and execute the function that inserts founded country name
 // in to the database.
 // Arguments are the html in slice of bytes and sql db pointer.
-func parseHtmlInsertCountriesNamesToDBSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
+func parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
 	var (
 		w1, w2, w3, w4, w5 byte = 'i', 'o', 'n', 'v', '"'
 		quoteCounter       uint8
