@@ -1,5 +1,3 @@
-github.com/Luckyfoxdesign/greq v0.0.0-20220502104030-21d2376195cf h1:TtoJG8XuZJcdHJhiwVJj7074OYb2+fLUX+WtvDoUOj8=
-github.com/Luckyfoxdesign/greq v0.0.0-20220502104030-21d2376195cf/go.mod h1:WIQodnDUL5AI1Ed1TKDgPYIrS0CAI6QMS/hyzz+1xyA=
 github.com/Luckyfoxdesign/greq v0.0.0-20220502153538-c4204a067e79 h1:YbysLDoYRhjUOLzVCudGsNkOz2R0ihTJZWMavAve/zU=
 github.com/Luckyfoxdesign/greq v0.0.0-20220502153538-c4204a067e79/go.mod h1:WIQodnDUL5AI1Ed1TKDgPYIrS0CAI6QMS/hyzz+1xyA=
 github.com/go-sql-driver/mysql v1.6.0 h1:BCTh4TKNUYmOmMUcQ3IipzF5prigylS7XXjEkfCHuOE=

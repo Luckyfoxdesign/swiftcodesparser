@@ -68,18 +68,15 @@ func main() {
 }
 
 func runFactory() {
+	cfg := readConfig()
+
 	const countriesToParse = 211
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
 		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
 		swiftInfoChanWithAllData   chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
+		connectionString           string         = fmt.Sprintf("%s:%s@tcp(%s)/%s", cfg.DB.User, cfg.DB.Password, cfg.DB.Host, cfg.DB.Name)
 	)
-
-	cfg := readConfig()
-
-	//Open database connection
-	var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", cfg.DB.User, cfg.DB.Password, cfg.DB.Host, cfg.DB.Name)
-	fmt.Println(connectionString)
 
 	db, err := sql.Open("mysql", connectionString)
 	if err != nil {
@@ -98,7 +95,7 @@ func runFactory() {
 	db.SetConnMaxIdleTime(time.Second * 2)
 
 	// Befour we run the function below, we need to check
-	go getAllCountries(&cfg, db, swiftInfoChanWithIdandName)
+	go getAllCountriesFromDB(&cfg, db, swiftInfoChanWithIdandName)
 
 	// Because we run our app with a cron
 	// we can use non blocking buffered channel with predefined capacity
@@ -166,68 +163,14 @@ func readConfig() Config {
 	return config
 }
 
-// Function that requests site url with proxy and execute
-// functions that parses src, inserts a SwiftInfo struct in to a database
-// and sends it in to the channel.
-func getAllCountries(cfg *Config, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
-	// Slug for the page with all countries.
-	// Site URL has a slash at the end of the URL.
-	// browse-by-country/
-
-	proxyURL := returnRandomProxyString(cfg)
-
-	src, err := greq.GetHTMLSource(cfg.SiteURL+"browse-by-country/", proxyURL)
-	if err != nil {
-		log.Fatal("Error when greq.GetHTMLSource() in getAllCountries(): ", err)
-	}
-
-	// TODO We need to write country id to help table
-
-	parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(&src, db, swiftInfoChanWithIdandName)
+func returnAllCountriesFromDB(*sql.DB) string {
+	return "array of strings, don't forget to replace return type"
 }
 
-// Function that parses html presented in slice of bytes
-// and execute the function that inserts founded country name
-// in to the database.
-// Arguments are the html in slice of bytes and sql db pointer.
-func parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(src *[]byte, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo) {
-	var (
-		w1, w2, w3, w4, w5 byte = 'i', 'o', 'n', 'v', '"'
-		quoteCounter       uint8
-		quoteStartIndex    int
-		countryName        string
-	)
-	for i, v := range *src {
-		if v == w1 && (*src)[i+1] == w2 && (*src)[i+2] == w3 && (*src)[i+4] == w4 {
-			for k := i; ; k++ {
-				if (*src)[k] == w5 {
-					if quoteCounter > 0 {
-						swiftInfoStruct := SwiftInfo{}
-						countryName = strings.ToLower(string((*src)[quoteStartIndex+1 : k]))
-						swiftInfoStruct.CountryName = countryName
-						quoteCounter = 0
-						swiftInfoStruct.CountryId = 1
-						// err := insertCountryNameToDB(db, &swiftInfoStruct)
-						// if err != nil {
-						// 	log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
-						// }
+// 	// TODO We need to write country id to help table
 
-						sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithIdandName)
-						break
-					}
-					quoteCounter++
-					quoteStartIndex = k
-				}
-			}
-			break
-		}
-	}
-}
-
-// Function that inserts all data from SwiftInfo struct in to a specified database
-func insertCountryNameToDB(db *sql.DB, swiftInfoStruct *SwiftInfo) error {
-	return nil
-}
+// 	parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(&src, db, swiftInfoChanWithIdandName)
+// }
 
 // Function that sends struct with type SwiftInfo to a specific channel
 // that specified in second argument.
