@@ -1,4 +1,4 @@
-package main
+package countries
 
 import (
 	"database/sql"
@@ -6,55 +6,32 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"strings"
+	common "swiftcodesparser/main/structures"
 	"time"
 
 	greq "github.com/Luckyfoxdesign/greq"
 	_ "github.com/go-sql-driver/mysql"
 )
 
-type Config struct {
-	Proxies []Proxy `json:"proxies"`
-	SiteURL string
-	DB      Database `json:"database"`
-}
-
-type Database struct {
-	User     string `json:"dbUser"`
-	Password string `json:"dbPassword"`
-	Host     string `json:"dbHost"`
-	Name     string `json:"dbName"`
-}
-
-type Proxy struct {
-	User     string `json:"proxyUser"`
-	Password string `json:"proxyPassword"`
-	Host     string `json:"proxyHost"`
-	Port     string `json:"proxyPort"`
-}
-
 type LogMessage struct {
-	place, msg string
+	place string
+	msg   string
 }
 
-func main() {
-	getAllCountriesAndIsertToDB()
-}
-
-func getAllCountriesAndIsertToDB() {
-	var cfg Config = readConfig()
+func GetAllCountriesAndIsertToDB() {
+	var cfg common.Config = readConfig()
 	var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", cfg.DB.User, cfg.DB.Password, cfg.DB.Host, cfg.DB.Name)
 
 	db, err := sql.Open("mysql", connectionString)
 	if err != nil {
-		log.Fatal("Error when sql.Open() in main(): ", err)
+		log.Fatal("Error when sql.Open() in GetAllCountriesAndIsertToDB(): ", err)
 	}
 	defer db.Close()
 
 	err = db.Ping()
 	if err != nil {
-		log.Fatal("Error when db.Ping() in main(): ", err)
+		log.Fatal("Error when db.Ping() in GetAllCountriesAndIsertToDB(): ", err)
 	}
 
 	db.SetConnMaxLifetime(time.Second * 2)
@@ -67,12 +44,12 @@ func getAllCountriesAndIsertToDB() {
 
 // Function that requests site url with proxy and execute
 // functions that parses src and inserts a Country Name in to a database
-func getAllCountries(cfg *Config, db *sql.DB) {
+func getAllCountries(cfg *common.Config, db *sql.DB) {
 	// Slug for the page with all countries.
 	// Site URL has the slash at the end of the URL.
 	// browse-by-country/
 
-	proxyURL := returnRandomProxyString(cfg)
+	proxyURL := common.ReturnRandomProxyString(cfg)
 
 	src, err := greq.GetHTMLSource(cfg.SiteURL+"browse-by-country/", proxyURL)
 	if err != nil {
@@ -84,10 +61,10 @@ func getAllCountries(cfg *Config, db *sql.DB) {
 
 // Function that reads the config.json with ioutil.ReadFile()
 // and returns unmarshaled json data in Config struct.
-func readConfig() Config {
-	var config Config
+func readConfig() common.Config {
+	var config common.Config
 
-	content, err := ioutil.ReadFile("./config.json")
+	content, err := ioutil.ReadFile("././config.json")
 	if err != nil {
 		log.Fatal("Error when ioutil.ReadFile() in readConfig(): ", err)
 	}
@@ -97,28 +74,6 @@ func readConfig() Config {
 		log.Fatal("Error during json.Unmarshal() in readConfig(): ", err)
 	}
 	return config
-}
-
-// Function returns random proxy string from the parameters
-// that listed in the array in the config file.
-// Function argument is a pointer to the config file constant.
-func returnRandomProxyString(c *Config) string {
-	var proxyIndex int
-
-	rand.Seed(time.Now().UnixNano())
-	proxyIndex = rand.Intn(len(c.Proxies))
-	proxy := c.Proxies[proxyIndex]
-
-	return returnProxyStringURL(&proxy)
-}
-
-// Function returns a formatted string.
-// That string is using to connect to a proxy.
-// String is constructing from User, Password, Host, Port parameters.
-// Parameters are a part of a Proxy struct that is the argument for this function.
-// Argument is a pointer to the Proxy struct variable.
-func returnProxyStringURL(p *Proxy) string {
-	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
 }
 
 // Function that parses html presented in slice of bytes
@@ -139,14 +94,24 @@ func parseHtmlAndInsertCountriesNamesToDb(src *[]byte, db *sql.DB) {
 						countryNameURL = strings.ReplaceAll(countryName, " ", "-")
 						quoteCounter = 0
 
-						err := insertCountryNameToDB(db, countryName, countryNameURL)
+						err := insertCountryNameToDB(db, countryName, countryNameURL, "countries")
 						if err != nil {
 							logMsg := LogMessage{}
 							logMsg.place = "insertCountryNameToDB"
-							logMsg.msg = "Error with insert country name in " + logMsg.place + " with error: " + err.Error()
+							logMsg.msg = "Error with insert country to countries name in " + logMsg.place + " with error: " + err.Error()
 
 							insertLogMessage(&logMsg, db)
-							log.Fatal("Error with insert country name in insertCountryNameToDB: ", err)
+							log.Fatal("Error with insert country name to countries in insertCountryNameToDB: ", err)
+						}
+
+						err = insertCountryNameToDB(db, countryName, countryNameURL, "progress_temp")
+						if err != nil {
+							logMsg := LogMessage{}
+							logMsg.place = "insertCountryNameToDB"
+							logMsg.msg = "Error with insert country name to progress_temp in " + logMsg.place + " with error: " + err.Error()
+
+							insertLogMessage(&logMsg, db)
+							log.Fatal("Error with insert country to progress_temp name in insertCountryNameToDB: ", err)
 						}
 						break
 					}
@@ -159,8 +124,9 @@ func parseHtmlAndInsertCountriesNamesToDb(src *[]byte, db *sql.DB) {
 }
 
 // Function that inserts all data from SwiftInfo struct in to a specified database
-func insertCountryNameToDB(db *sql.DB, countryName, countryNameURL string) error {
-	stmtIns, err := db.Prepare("INSERT INTO countries (name, url) VALUES(?, ?)")
+func insertCountryNameToDB(db *sql.DB, countryName, countryNameURL, dbName string) error {
+	var dbQuery string = fmt.Sprintf("INSERT INTO %s (name, url) VALUES(?, ?)", dbName)
+	stmtIns, err := db.Prepare(dbQuery)
 	if err != nil {
 		log.Fatal("Error with db.Prepare in the insertCountryNameToDB with error: ", err)
 	}

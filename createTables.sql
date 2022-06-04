@@ -21,17 +21,17 @@ CREATE TABLE `logs` (
 );
 CREATE TABLE `progress_temp` (
     `id` INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
-    `country_id` INT UNSIGNED NOT NULL,
-    `country_name` VARCHAR(255) NOT NULL,
-    `pages_total` TINYINT UNSIGNED NOT NULL,
+    `name` VARCHAR(255) NOT NULL,
+    `url` VARCHAR(255) NOT NULL,
+    `pages_total` TINYINT UNSIGNED NOT NULL DEFAULT 0,
 
     -- Номера страниц которые не удалось спарсить. 
     -- Page numbers with the comma separator. Pages that didn't parsed
     -- Field data example: 1,33,11,...N
-    `pages_numbers` TEXT NOT NULL,
+    `pages_numbers` TEXT NOT NULL DEFAULT 0,
 
     -- 0 - not started
     -- 1 - finished
     -- 2 - partially finished
-    `status` TINYINT UNSIGNED NOT NULL
+    `status` TINYINT UNSIGNED NOT NULL DEFAULT 0
 );

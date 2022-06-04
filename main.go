@@ -7,34 +7,14 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"strconv"
 	"strings"
+	common "swiftcodesparser/main/structures"
 	"time"
 
 	greq "github.com/Luckyfoxdesign/greq"
 	_ "github.com/go-sql-driver/mysql"
 )
-
-type Config struct {
-	Proxies []Proxy `json:"proxies"`
-	SiteURL string
-	DB      Database `json:"database"`
-}
-
-type Database struct {
-	User     string `json:"dbUser"`
-	Password string `json:"dbPassword"`
-	Host     string `json:"dbHost"`
-	Name     string `json:"dbName"`
-}
-
-type Proxy struct {
-	User     string `json:"proxyUser"`
-	Password string `json:"proxyPassword"`
-	Host     string `json:"proxyHost"`
-	Port     string `json:"proxyPort"`
-}
 
 type SwiftInfo struct {
 	CountryName  string
@@ -65,12 +45,12 @@ func (SwiftInfoDetailsStruct *SwiftInfoDetails) extractSwiftCode() {
 
 func main() {
 	runFactory()
+	// countries.GetAllCountriesAndIsertToDB()
 }
 
 func runFactory() {
-	cfg := readConfig()
-
-	const countriesToParse = 211
+	var cfg common.Config = readConfig()
+	const countriesToParse = 1
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
 		swiftInfoChanWithFirstData chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
@@ -94,8 +74,7 @@ func runFactory() {
 	db.SetMaxIdleConns(100)
 	db.SetConnMaxIdleTime(time.Second * 2)
 
-	// Befour we run the function below, we need to check
-	go getAllCountriesFromDB(&cfg, db, swiftInfoChanWithIdandName)
+	go getAllCountriesFromDBAndSendThemToChan(&cfg, db, swiftInfoChanWithIdandName, countriesToParse)
 
 	// Because we run our app with a cron
 	// we can use non blocking buffered channel with predefined capacity
@@ -105,7 +84,6 @@ func runFactory() {
 		break
 	}
 	for i := 0; i < countriesToParse; i++ {
-		// fmt.Printf("%+v\n", <-swiftInfoChanWithFirstData)
 		sct := <-swiftInfoChanWithFirstData
 		// If I need to control the scraping process I need to know:
 		// - how many pages were already parsed
@@ -139,8 +117,9 @@ func runFactory() {
 	for i := 0; i < countriesToParse; i++ {
 		sct := <-swiftInfoChanWithAllData
 		for i, v := range sct.DetailsSlice {
-			fmt.Println(i, v)
-			// write swiftInfoDetails to database
+			// TODO!!!
+			// need to write swiftInfoDetails to the swift_codes table
+			// need to write status to the progress_temp table
 		}
 		break
 	}
@@ -148,8 +127,8 @@ func runFactory() {
 
 // Function that reads the config.json with ioutil.ReadFile()
 // and returns unmarshaled json data in Config struct.
-func readConfig() Config {
-	var config Config
+func readConfig() common.Config {
+	var config common.Config
 
 	content, err := ioutil.ReadFile("./config.json")
 	if err != nil {
@@ -167,38 +146,11 @@ func returnAllCountriesFromDB(*sql.DB) string {
 	return "array of strings, don't forget to replace return type"
 }
 
-// 	// TODO We need to write country id to help table
-
-// 	parseHtmlAndInsertCountriesNamesToDbAndSendStructToChan(&src, db, swiftInfoChanWithIdandName)
-// }
-
 // Function that sends struct with type SwiftInfo to a specific channel
 // that specified in second argument.
 // First agrument is a pointer to a SwiftInfo struct.
 func sendStructToChannel(swiftInfoStruct *SwiftInfo, ch chan SwiftInfo) {
 	ch <- *swiftInfoStruct
-}
-
-// Function returns random proxy string from the parameters
-// that listed in the array in the config file.
-// Function argument is a pointer to the config file constant.
-func returnRandomProxyString(c *Config) string {
-	var proxyIndex int
-
-	rand.Seed(time.Now().UnixNano())
-	proxyIndex = rand.Intn(len(c.Proxies))
-	proxy := c.Proxies[proxyIndex]
-
-	return returnProxyStringURL(&proxy)
-}
-
-// Function returns a formatted string.
-// That string is using to connect to a proxy.
-// String is constructing from User, Password, Host, Port parameters.
-// Parameters are a part of a Proxy struct that is the argument for this function.
-// Argument is a pointer to the Proxy struct variable.
-func returnProxyStringURL(p *Proxy) string {
-	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
 }
 
 // Function that requests site data and parses response in the html.
@@ -207,16 +159,13 @@ func returnProxyStringURL(p *Proxy) string {
 // Result of this response we add to the existing sturcture that passes
 // like an argument in the function and send structure to another channel.
 // On the first page we get pages total count and iterate each of page.
-func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *Config, swiftInfoFirstDataChan chan SwiftInfo) {
+func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *common.Config, swiftInfoFirstDataChan chan SwiftInfo) {
 	var (
-		proxyURL       string = returnRandomProxyString(cfg)
+		proxyURL       string = common.ReturnRandomProxyString(cfg)
 		countryName    string = strings.ReplaceAll(swiftInfoStruct.CountryName, " ", "-")
 		pagesNumber    int
 		emptyByteSlice []byte
 	)
-
-	// !!!DON'T FORGET TO REMOVE STRING BELOW
-	fmt.Println(cfg.SiteURL + countryName)
 
 	src, err := getSiteHtmlCode(cfg.SiteURL+countryName, proxyURL)
 	if err != nil {
@@ -246,10 +195,9 @@ func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 // Function that requests a swift code page with full information for requested swift code.
 // It searching for a postcode and a connection.
 // When we find them we write them to the existing SwiftInfo struct.
-func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *Config, swiftCodeDetailsStructIndex int, swiftCodeInfoStruct *SwiftInfo) {
+func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *common.Config, swiftCodeDetailsStructIndex int, swiftCodeInfoStruct *SwiftInfo) {
 	url := cfg.SiteURL + swiftCodeInfoStruct.CountryName + "/" + swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].SwiftCodeOrBIC
-	fmt.Println(url)
-	src, err := getSiteHtmlCode(url, returnRandomProxyString(cfg))
+	src, err := getSiteHtmlCode(url, common.ReturnRandomProxyString(cfg))
 	if err != nil {
 		log.Fatal("Error when getSiteHtmlCode() in the getSwiftCodeInfoFromPageAndWriteToExistingStructAndSendToChan() with the err: ", err)
 	}
@@ -365,4 +313,20 @@ func findPagesCount(src *[]byte) int {
 		}
 	}
 	return numberOfPagesInt
+}
+
+// The function that requests a country id and name from the progress_temp table.
+// Writes them to a SwiftInfo struct and send that struct to a chan where will be next parse steps.
+func getAllCountriesFromDBAndSendThemToChan(cfg *common.Config, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo, limitToParse int) {
+	var (
+		baseStruct SwiftInfo = SwiftInfo{}
+		dbQuery    string    = fmt.Sprintf("SELECT id, name FROM progress_temp WHERE status=0 LIMIT %d", limitToParse)
+	)
+	err := db.QueryRow(dbQuery).Scan(&baseStruct.CountryId, &baseStruct.CountryName)
+
+	if err != nil {
+		log.Fatal("Error when db.QueryRow() in the getAllCountriesFromDBAndSendThemToChan() with the err: ", err)
+	}
+
+	sendStructToChannel(&baseStruct, swiftInfoChanWithIdandName)
 }
