@@ -115,13 +115,11 @@ func runFactory() {
 		break
 	}
 	for i := 0; i < countriesToParse; i++ {
-		sct := <-swiftInfoChanWithAllData
-		for i, v := range sct.DetailsSlice {
-			// TODO!!!
-			// need to write swiftInfoDetails to the swift_codes table
-			// need to write status to the progress_temp table
+		swiftInfoStruct := <-swiftInfoChanWithAllData
+		for _, v := range swiftInfoStruct.DetailsSlice {
+			insertSwiftInfoDetailsToDB(swiftInfoStruct.CountryId, v, db)
 		}
-		break
+		setCountryStatusToDB(swiftInfoStruct.CountryId, 1, db)
 	}
 }
 
@@ -331,11 +329,19 @@ func getAllCountriesFromDBAndSendThemToChan(cfg *common.Config, db *sql.DB, swif
 	sendStructToChannel(&baseStruct, swiftInfoChanWithIdandName)
 }
 
-func insertSwiftInfoDetailsToDB() {
-
+func insertSwiftInfoDetailsToDB(countryId uint, swiftInfoDetailsStruct SwiftInfoDetails, db *sql.DB) {
+	stmtIns, err := db.Prepare("INSERT INTO swift_codes (country_id, swift_bic, bank_institution, branch_name, address, city_name, postcode, connection) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
+	if err != nil {
+		log.Fatal("Error with db.Prepare in the insertSwiftInfoDetailsToDB with error: ", err)
+	}
+	_, err = stmtIns.Exec(countryId, swiftInfoDetailsStruct.SwiftCodeOrBIC, swiftInfoDetailsStruct.BankOrInstitution, swiftInfoDetailsStruct.Branch, swiftInfoDetailsStruct.Address, swiftInfoDetailsStruct.City, swiftInfoDetailsStruct.Postcode, swiftInfoDetailsStruct.Connection)
+	if err != nil {
+		log.Fatal("Error with stmtIns.Exec in the insertSwiftInfoDetailsToDB with error: ", err)
+	}
+	defer stmtIns.Close()
 }
 
-func setCountryStatusToDB(countryId, status uint, db *sql.DB, swiftInfoStruct SwiftInfo) {
+func setCountryStatusToDB(countryId, status uint, db *sql.DB) {
 	// TODO??? need to handle parsing errors and to pass a specific status via argument
 	stmtIns, err := db.Prepare("UPDATE progress_temp SET status=? WHERE id=?")
 	if err != nil {
