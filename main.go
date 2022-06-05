@@ -77,25 +77,18 @@ func runFactory() {
 	go getAllCountriesFromDBAndSendThemToChan(&cfg, db, swiftInfoChanWithIdandName, countriesToParse)
 
 	// Because we run our app with a cron
-	// we can use non blocking buffered channel with predefined capacity
+	// we can use a non blocking buffered channel with a predefined capacity
 	for i := 0; i < countriesToParse; i++ {
 		time.Sleep(time.Second)
 		getAllSwiftCodesByCountry(<-swiftInfoChanWithIdandName, &cfg, swiftInfoChanWithFirstData)
 		break
 	}
 	for i := 0; i < countriesToParse; i++ {
-		sct := <-swiftInfoChanWithFirstData
-		// If I need to control the scraping process I need to know:
-		// - how many pages were already parsed
-		// - how many pages in total
-
-		// I think I need to parse one page at a time???
-		// so I need a loop with counter instead of the loop with a the range
-		// or we don't need the loop at all.
-		for i, v := range sct.DetailsSlice {
+		swiftInfoStruct := <-swiftInfoChanWithFirstData
+		for i, v := range swiftInfoStruct.DetailsSlice {
 			if v.SwiftCodeOrBIC != "" {
-				// On this step structure hasn't the valid swift code.
-				// Field contains an html link element inside whom placed swift code.
+				// On this step the structure hasn't a valid swift code.
+				// Field contains an html link element inside whom placed a swift code.
 				// So we need to extract this code.
 				// Example: <a href="/albania/usalaltrvl2/">USALALTRVL2
 
@@ -103,15 +96,15 @@ func runFactory() {
 				// DON'T FORGET ABOUT THIS PLACE, LEARN.
 				// Previously I've wrote extractSwiftCode as a separate func with
 				// a pointer argument to the v variable.
-				// I guess it work because the v in the loop as a copy in memory not a pointer
-				// so when I access child struct by the index directly from the parent struct
+				// I guess it works because the v in the loop as a copy in memory not a pointer
+				// so when I access the child struct by the index directly from the parent struct
 				// I can correctly change values for the child struct.
-				sct.DetailsSlice[i].extractSwiftCode()
+				swiftInfoStruct.DetailsSlice[i].extractSwiftCode()
 			}
 			time.Sleep(time.Millisecond * 200)
-			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, i, &sct)
+			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, i, &swiftInfoStruct)
 		}
-		sendStructToChannel(&sct, swiftInfoChanWithAllData)
+		sendStructToChannel(&swiftInfoStruct, swiftInfoChanWithAllData)
 		break
 	}
 	for i := 0; i < countriesToParse; i++ {
@@ -119,12 +112,17 @@ func runFactory() {
 		for _, v := range swiftInfoStruct.DetailsSlice {
 			insertSwiftInfoDetailsToDB(swiftInfoStruct.CountryId, v, db)
 		}
+		// cause we don't expect any error while parsing
+		// we always send the status = 1 (without errors) as an argument
+
+		// TODO??? Do I need functions that handle errors? I think know, cause
+		// the website structure is pretty simple
 		setCountryStatusToDB(swiftInfoStruct.CountryId, 1, db)
 	}
 }
 
-// Function that reads the config.json with ioutil.ReadFile()
-// and returns unmarshaled json data in Config struct.
+// Function that reads the config.json with the ioutil.ReadFile() func
+// and returns an unmarshaled json data in a Config struct.
 func readConfig() common.Config {
 	var config common.Config
 
@@ -144,19 +142,19 @@ func returnAllCountriesFromDB(*sql.DB) string {
 	return "array of strings, don't forget to replace return type"
 }
 
-// Function that sends struct with type SwiftInfo to a specific channel
-// that specified in second argument.
-// First agrument is a pointer to a SwiftInfo struct.
+// Function that sends a struct with the type SwiftInfo to a specific channel
+// that specified in a second argument.
+// First agrument is a pointer to the SwiftInfo struct.
 func sendStructToChannel(swiftInfoStruct *SwiftInfo, ch chan SwiftInfo) {
 	ch <- *swiftInfoStruct
 }
 
-// Function that requests site data and parses response in the html.
-// On the first page we get pages total count and run loop that
-// requests on each page in a loop.
-// Result of this response we add to the existing sturcture that passes
-// like an argument in the function and send structure to another channel.
-// On the first page we get pages total count and iterate each of page.
+// Function that requests a site data and parses a response in the html.
+// On the first page we get a pages total count and run a loop that
+// requests on each page in it.
+// A result of this response we add to the existing sturcture that passes
+// like an argument in the function and send structure to an another channel.
+// On a first page we get the pages total count and iterate each of the page.
 func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *common.Config, swiftInfoFirstDataChan chan SwiftInfo) {
 	var (
 		proxyURL       string = common.ReturnRandomProxyString(cfg)
@@ -178,10 +176,13 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *common.Config, sw
 			findSwiftCodeInfoInPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
 		}
 	}
+	// we don't need to handle countries with a pages count equals zero
+	// cause we expect that the country always have 1 or more pages
+	// and these pages always have 1 or more swift codes
 }
 
-// Function that requests site url via a proxy and returns slice of bytes.
-// If request has an error function returns it or returns nil.
+// The function that requests a site url via a proxy and returns a slice of bytes.
+// If request has an error the function returns it or returns nil.
 func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 	src, err := greq.GetHTMLSource(siteURL, proxyURL)
 	if err != nil {
@@ -190,9 +191,9 @@ func getSiteHtmlCode(siteURL, proxyURL string) ([]byte, error) {
 	return src, nil
 }
 
-// Function that requests a swift code page with full information for requested swift code.
+// The function that requests a swift code page with a full information for a requested swift code.
 // It searching for a postcode and a connection.
-// When we find them we write them to the existing SwiftInfo struct.
+// When we find them we write them to an existing SwiftInfo struct.
 func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *common.Config, swiftCodeDetailsStructIndex int, swiftCodeInfoStruct *SwiftInfo) {
 	url := cfg.SiteURL + swiftCodeInfoStruct.CountryName + "/" + swiftCodeInfoStruct.DetailsSlice[swiftCodeDetailsStructIndex].SwiftCodeOrBIC
 	src, err := getSiteHtmlCode(url, common.ReturnRandomProxyString(cfg))
@@ -229,10 +230,10 @@ func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *common.Config, swiftC
 	}
 }
 
-// Function that parses html code and search for the
-// Bank or Institution, City, Branch, Swift code.
-// When information will found function writes it to a SwiftInfo struct
-// and sends in to a specific channel.
+// The function that parses an html code and search for a
+// Bank or Institution, a City, a Branch, a Swift code.
+// When the information will be found the function writes it to a SwiftInfo struct
+// and sends it into a specific channel.
 func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
 	var (
 		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
@@ -271,7 +272,7 @@ func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInf
 					break
 				}
 			}
-			// Row with code under the comment helps with the understanding that the code/algorytm is working correctly.
+			// Row with a code under the comment helps us to understand that the code/algorytm is working correctly.
 			// Shows a correct/incorrect elementsData order
 			// fmt.Println("ec", elementCounter, elementsInfo[elementCounter])
 
@@ -290,7 +291,7 @@ func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInf
 	sendStructToChannel(swiftCodeStruct, swiftCodeChan)
 }
 
-// Function that searchs for the >Last word and checking if the symbol / is before the searching word.
+// The function that searchs for the >Last word and checking, if the symbol / is before the searching word.
 // Example: <a href="/china/page/54/">Last »</a>
 // Don't forget that might be three elements, two of them related to the Last button
 // and one element placed in the swift code description block.
@@ -313,8 +314,8 @@ func findPagesCount(src *[]byte) int {
 	return numberOfPagesInt
 }
 
-// The function that requests a country id and name from the progress_temp table.
-// Writes them to a SwiftInfo struct and send that struct to a chan where will be next parse steps.
+// The function that requests a country id and a name from the progress_temp table.
+// Writes them to a SwiftInfo struct and send that struct to a channel where will be next parse steps.
 func getAllCountriesFromDBAndSendThemToChan(cfg *common.Config, db *sql.DB, swiftInfoChanWithIdandName chan SwiftInfo, limitToParse int) {
 	var (
 		baseStruct SwiftInfo = SwiftInfo{}
@@ -329,6 +330,7 @@ func getAllCountriesFromDBAndSendThemToChan(cfg *common.Config, db *sql.DB, swif
 	sendStructToChannel(&baseStruct, swiftInfoChanWithIdandName)
 }
 
+// The function that inserts a new swift details tuple into the swift_codes table
 func insertSwiftInfoDetailsToDB(countryId uint, swiftInfoDetailsStruct SwiftInfoDetails, db *sql.DB) {
 	stmtIns, err := db.Prepare("INSERT INTO swift_codes (country_id, swift_bic, bank_institution, branch_name, address, city_name, postcode, connection) VALUES(?, ?, ?, ?, ?, ?, ?, ?)")
 	if err != nil {
@@ -341,6 +343,7 @@ func insertSwiftInfoDetailsToDB(countryId uint, swiftInfoDetailsStruct SwiftInfo
 	defer stmtIns.Close()
 }
 
+// The function that sets a new status value for a country in the progress_temp table
 func setCountryStatusToDB(countryId, status uint, db *sql.DB) {
 	// TODO??? need to handle parsing errors and to pass a specific status via argument
 	stmtIns, err := db.Prepare("UPDATE progress_temp SET status=? WHERE id=?")
