@@ -18,7 +18,7 @@ import (
 
 type SwiftInfo struct {
 	CountryName  string
-	CountryId    int64
+	CountryId    uint
 	DetailsSlice []SwiftInfoDetails
 }
 
@@ -329,4 +329,21 @@ func getAllCountriesFromDBAndSendThemToChan(cfg *common.Config, db *sql.DB, swif
 	}
 
 	sendStructToChannel(&baseStruct, swiftInfoChanWithIdandName)
+}
+
+func insertSwiftInfoDetailsToDB() {
+
+}
+
+func setCountryStatusToDB(countryId, status uint, db *sql.DB, swiftInfoStruct SwiftInfo) {
+	// TODO??? need to handle parsing errors and to pass a specific status via argument
+	stmtIns, err := db.Prepare("UPDATE progress_temp SET status=? WHERE id=?")
+	if err != nil {
+		log.Fatal("Error with db.Prepare in the setCountryStatusToDB with error: ", err)
+	}
+	_, err = stmtIns.Exec(status, countryId)
+	if err != nil {
+		log.Fatal("Error with stmtIns.Exec in the setCountryStatusToDB with error: ", err)
+	}
+	defer stmtIns.Close()
 }

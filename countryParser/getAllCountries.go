@@ -128,11 +128,13 @@ func insertCountryNameToDB(db *sql.DB, countryName, countryNameURL, dbName strin
 	var dbQuery string = fmt.Sprintf("INSERT INTO %s (name, url) VALUES(?, ?)", dbName)
 	stmtIns, err := db.Prepare(dbQuery)
 	if err != nil {
-		log.Fatal("Error with db.Prepare in the insertCountryNameToDB with error: ", err)
+		return err
+		// log.Fatal("Error with db.Prepare in the insertCountryNameToDB with error: ", err)
 	}
 	_, err = stmtIns.Exec(countryName, countryNameURL)
 	if err != nil {
-		log.Fatal("Error with stmtIns.Exec in the insertCountryNameToDB with error: ", err)
+		return err
+		// log.Fatal("Error with stmtIns.Exec in the insertCountryNameToDB with error: ", err)
 	}
 	defer stmtIns.Close()
 
