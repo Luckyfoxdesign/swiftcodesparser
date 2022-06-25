@@ -34,6 +34,8 @@ type SwiftInfoDetails struct {
 
 // Function that extracts swift code from the <a> link element.
 func (SwiftInfoDetailsStruct *SwiftInfoDetails) extractSwiftCode() {
+	// ERR кажется ошибка в обработке кода т.к в самой структуре записи вида <a href="/australia/abocau2s/">ABOCAU2S
+	// имеют нормальный вид
 	var row []byte = []byte(SwiftInfoDetailsStruct.SwiftCodeOrBIC)
 	for i := len(row) - 1; i > 0; i-- {
 		if row[i] == '>' {
@@ -49,7 +51,7 @@ func main() {
 }
 
 func runFactory() {
-	var cfg common.Config = readConfig()
+	var cfg common.Config = common.ReadConfig("./config.json", "runFactory")
 	const countriesToParse = 1
 	var (
 		swiftInfoChanWithIdandName chan SwiftInfo = make(chan SwiftInfo, countriesToParse)
@@ -99,7 +101,9 @@ func runFactory() {
 				// I guess it works because the v in the loop as a copy in memory not a pointer
 				// so when I access the child struct by the index directly from the parent struct
 				// I can correctly change values for the child struct.
-				swiftInfoStruct.DetailsSlice[i].extractSwiftCode()
+
+				//swiftInfoStruct.DetailsSlice[i].extractSwiftCode()
+				swiftInfoStruct.DetailsSlice[i].SwiftCodeOrBIC = strings.ToLower(v.SwiftCodeOrBIC)
 			}
 			time.Sleep(time.Millisecond * 200)
 			getSwiftCodeInfoFromPageAndWriteToExistingStruct(&cfg, i, &swiftInfoStruct)
@@ -111,6 +115,11 @@ func runFactory() {
 		swiftInfoStruct := <-swiftInfoChanWithAllData
 		for _, v := range swiftInfoStruct.DetailsSlice {
 			insertSwiftInfoDetailsToDB(swiftInfoStruct.CountryId, v, db)
+			// fmt.Println("BankOrInstitution: ", v.BankOrInstitution)
+			// fmt.Println("City: ", v.City)
+			// fmt.Println("Branch: ", v.Branch)
+			// fmt.Println("SwiftCodeOrBIC: ", v.SwiftCodeOrBIC)
+			// fmt.Println("END=============")
 		}
 		// cause we don't expect any error while parsing
 		// we always send the status = 1 (without errors) as an argument
@@ -171,7 +180,7 @@ func getAllSwiftCodesByCountry(swiftInfoStruct SwiftInfo, cfg *common.Config, sw
 
 	pagesNumber = findPagesCount(&src)
 
-	if pagesNumber > 0 {
+	if pagesNumber > 1 {
 		for i := 2; i <= pagesNumber; i++ {
 			findSwiftCodeInfoInPage(cfg.SiteURL+countryName+"/page/"+strconv.Itoa(i), proxyURL, &swiftInfoStruct, swiftInfoFirstDataChan, &emptyByteSlice)
 		}
@@ -202,7 +211,7 @@ func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *common.Config, swiftC
 	}
 
 	var (
-		postCodeTitleStartIndex        int = bytes.Index(src, []byte("Addr"))
+		postCodeTitleStartIndex        int = bytes.Index(src, []byte(">Add"))
 		tbodyEndIndex                  int = bytes.Index(src, []byte("</tb"))
 		valueStartIndex, valueEndIndex int
 		valuesSlice                    []string
@@ -236,17 +245,22 @@ func getSwiftCodeInfoFromPageAndWriteToExistingStruct(cfg *common.Config, swiftC
 // and sends it into a specific channel.
 func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInfo, swiftCodeChan chan SwiftInfo, src *[]byte) {
 	var (
-		firstTableIndex   int = bytes.Index(*src, []byte("<tb"))
-		lastTableIndex    int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
-		elementData       string
-		elementStartIndex int
-		elementCounter    uint8
-		elementsInfo      map[uint8]string = make(map[uint8]string, 5)
-		source            []byte
-		err               error
-		details           SwiftInfoDetails
+		firstTableIndex int = bytes.Index(*src, []byte("<tb"))
+		lastTableIndex  int = bytes.Index(*src, []byte("</tb")) // Do we really need 4th loop? !THINK
+		elementData     string
+		elementCounter  uint8
+		elementsInfo    map[uint8]string = make(map[uint8]string, 5)
+		source          []byte
+		err             error
+		details         SwiftInfoDetails
 	)
 
+	// 	<tr>
+	//      <td colspan="5"><ins class="adsbygoogle adsbygoogle--feed" style="display:block" data-ad-format="fluid" data-ad-layout-key="-gw-3+1f-3d+2z" data-ad-client="ca-pub-3108645613548918" data-ad-slot="9247727100"></ins>
+	// <script>
+	//      (adsbygoogle = window.adsbygoogle || []).push({});
+	// </script></td>
+	//    </tr>
 	if len(*src) == 0 {
 		source, err = getSiteHtmlCode(siteURL, proxyURL)
 		if err != nil {
@@ -258,26 +272,39 @@ func findSwiftCodeInfoInPage(siteURL, proxyURL string, swiftCodeStruct *SwiftInf
 
 	for i := firstTableIndex; i < lastTableIndex; i++ {
 		// I don't know how to rewrite this complex condition and make it more easier.
-		if (source)[i] == '"' && (source)[i+1] == '>' && (source)[i-1] != '/' && (source)[i-6] != 'p' && (source)[i+5] != 'n' && (source)[i+6] != 's' {
-			elementStartIndex = i + 2
+		if (source)[i] == 't' && (source)[i+1] == 'a' && (source)[i+2] == 'b' && (source)[i-9] == 'd' {
 			for k := i; ; k++ {
 				if (source)[k] == '<' && (source)[k+1] == '/' {
-					elementData = string((source)[elementStartIndex:k])
+					elementData = string((source)[i:k])
 
 					// <ins class= it's a google ad element that inserts by js
 					// we don't need this element
-					if !strings.Contains(elementData, "<ins class") {
+					if !strings.Contains(elementData, "<ins") {
 						elementsInfo[elementCounter] = elementData
 					}
+					// TODO!!! Need check the condition above, 'couse main loop condition was rewritten
+					// I don't sure that I need condition for <ins element...
 					break
 				}
 			}
-			// Row with a code under the comment helps us to understand that the code/algorytm is working correctly.
-			// Shows a correct/incorrect elementsData order
-			// fmt.Println("ec", elementCounter, elementsInfo[elementCounter])
 
 			elementCounter++
 			if elementCounter == 5 {
+				for i, v := range elementsInfo {
+					for k := len(v) - 1; k > 0; k-- {
+						if v[k] == '>' {
+							elementsInfo[i] = string(v[k+1:])
+							break
+						}
+					}
+				}
+				// For debugging
+				// fmt.Println("id: ", elementsInfo[0])
+				// fmt.Println("BankOrInstitution: ", elementsInfo[1])
+				// fmt.Println("City: ", elementsInfo[2])
+				// fmt.Println("Branch: ", elementsInfo[3])
+				// fmt.Println("SwiftCodeOrBIC: ", elementsInfo[4])
+				// fmt.Println("END=============")
 				details.BankOrInstitution = elementsInfo[1]
 				details.City = elementsInfo[2]
 				details.Branch = elementsInfo[3]

@@ -2,9 +2,7 @@ package countries
 
 import (
 	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"strings"
 	common "swiftcodesparser/main/structures"
@@ -20,7 +18,7 @@ type LogMessage struct {
 }
 
 func GetAllCountriesAndIsertToDB() {
-	var cfg common.Config = readConfig()
+	var cfg common.Config = common.ReadConfig("../config.json", "GetAllCountriesAndIsertToDB")
 	var connectionString string = fmt.Sprintf("%s:%s@tcp(%s)/%s", cfg.DB.User, cfg.DB.Password, cfg.DB.Host, cfg.DB.Name)
 
 	db, err := sql.Open("mysql", connectionString)
@@ -57,23 +55,6 @@ func getAllCountries(cfg *common.Config, db *sql.DB) {
 	}
 
 	parseHtmlAndInsertCountriesNamesToDb(&src, db)
-}
-
-// Function that reads the config.json with ioutil.ReadFile()
-// and returns unmarshaled json data in Config struct.
-func readConfig() common.Config {
-	var config common.Config
-
-	content, err := ioutil.ReadFile("././config.json")
-	if err != nil {
-		log.Fatal("Error when ioutil.ReadFile() in readConfig(): ", err)
-	}
-
-	err = json.Unmarshal(content, &config)
-	if err != nil {
-		log.Fatal("Error during json.Unmarshal() in readConfig(): ", err)
-	}
-	return config
 }
 
 // Function that parses html presented in slice of bytes

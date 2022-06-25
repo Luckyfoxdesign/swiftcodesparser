@@ -1,7 +1,10 @@
 package common
 
 import (
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"log"
 	"math/rand"
 	"time"
 )
@@ -46,4 +49,26 @@ func ReturnRandomProxyString(c *Config) string {
 // Argument is a pointer to the Proxy struct variable.
 func returnProxyStringURL(p *Proxy) string {
 	return fmt.Sprintf("http://%s:%s@%s:%s", p.User, p.Password, p.Host, p.Port)
+}
+
+// Function that reads the config.json with ioutil.ReadFile()
+// and returns unmarshaled json data in Config struct.
+func ReadConfig(path, place string) Config {
+	var (
+		config      Config
+		errorString string
+	)
+
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		errorString = fmt.Sprintf("Error when ioutil.ReadFile() in the %s: ", place)
+		log.Fatal(errorString, err)
+	}
+
+	err = json.Unmarshal(content, &config)
+	if err != nil {
+		errorString = fmt.Sprintf("Error when ioutil.Unmarshal() in the %s: ", place)
+		log.Fatal(errorString, err)
+	}
+	return config
 }
